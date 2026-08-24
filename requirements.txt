@@ -1,0 +1,15 @@
+# Sign Language Translator — Dependencies
+# Pinned versions for reproducibility.
+# Install with: pip install -r requirements.txt
+
+opencv-python==4.10.0.84
+mediapipe==0.10.35
+numpy
+pandas
+scikit-learn
+torch
+torchvision
+
+# Phase 3 Dependencies
+PyQt6
+pyttsx3
