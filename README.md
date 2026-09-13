@@ -124,7 +124,17 @@ python scripts/benchmark.py
 
 ---
 
-## 5. Phase 3 — Full Alpha Application (`src/ui_app.py`)
+## 5. Core AI & Inference Architecture (Author Contributions)
+
+This repository features a production-ready AI inference engine with the following capabilities:
+1. **TorchScript Export Pipeline:** Exported trained PyTorch static (`StaticModelV2`) and dynamic (`DynamicGRU`) models into optimized TorchScript (`.pt`) formats using `scripts/export_to_torchscript.py`.
+2. **Unified Inference Wrapper:** Built the `SignPredictor` class (`src/inference/live_inference.py`) that seamlessly loads the compiled TorchScript models and label maps for fast, isolated inference.
+3. **Motion-Segmented Sequence Buffer:** Integrated the `SequenceBuffer` with temporal interpolation to capture continuous 30-frame motion windows smoothly and trigger predictions upon gesture completion.
+4. **End-to-End Integration Tests:** Designed and completed comprehensive integration tests (`scripts/test_integration.py`) verifying both static frame predictions and temporal sequence motion capture pipelines.
+
+---
+
+## 6. Phase 3 — Full Alpha Application (`src/ui_app.py`)
 
 Turned the real-time pipeline into a usable application with a PyQt6 GUI, text accumulation, and text-to-speech.
 
