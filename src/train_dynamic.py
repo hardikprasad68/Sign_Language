@@ -243,12 +243,20 @@ def train_dynamic_model(data_dir: str, model_save_path: str, labels_save_path: s
         print(f"  {word}: {label_counts[idx]} samples")
 
     # Stratified split: 70% Train, 15% Val, 15% Test
-    X_train, X_temp, y_train, y_temp = train_test_split(
-        sequences, labels, train_size=0.70, random_state=42, stratify=labels
-    )
-    X_val, X_test, y_val, y_test = train_test_split(
-        X_temp, y_temp, train_size=0.50, random_state=42, stratify=y_temp
-    )
+    # Falls back to a non-stratified split if any class has too few samples to
+    # stratify (this happens with small, uneven real-data classes — e.g. a
+    # word with only 1-3 total samples can't be split 3 ways while preserving
+    # its class in every split).
+    def _safe_split(X, y, train_size, stratify):
+        try:
+            return train_test_split(X, y, train_size=train_size, random_state=42, stratify=stratify)
+        except ValueError as e:
+            print(f"[WARN] Stratified split failed ({e}); falling back to a non-stratified split. "
+                  f"Consider collecting more samples for your rarest word(s).")
+            return train_test_split(X, y, train_size=train_size, random_state=42)
+
+    X_train, X_temp, y_train, y_temp = _safe_split(sequences, labels, 0.70, stratify=labels)
+    X_val, X_test, y_val, y_test = _safe_split(X_temp, y_temp, 0.50, stratify=y_temp)
 
     print(f"[INFO] Train samples: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
 

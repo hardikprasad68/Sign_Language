@@ -25,7 +25,13 @@ from speech_output import SpeechEngine
 
 # Setup paths (similar to main.py)
 from pathlib import Path
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from resource_path import get_project_root
+_PROJECT_ROOT = get_project_root()
+print(f"[DEBUG] sys.frozen={getattr(sys, 'frozen', False)}")
+print(f"[DEBUG] sys._MEIPASS={getattr(sys, '_MEIPASS', 'N/A')}")
+print(f"[DEBUG] sys.executable={sys.executable}")
+print(f"[DEBUG] _PROJECT_ROOT resolved to={_PROJECT_ROOT}")
+print(f"[DEBUG] (_PROJECT_ROOT / 'models').exists()={(_PROJECT_ROOT / 'models').exists()}")
 STATIC_MODEL_PATH = str(_PROJECT_ROOT / "models" / "mlp_v2.pt")
 STATIC_MODEL_FALLBACK = str(_PROJECT_ROOT / "models" / "mlp_v1.pt")
 STATIC_LABELS_PATH = str(_PROJECT_ROOT / "models" / "class_labels.txt")
