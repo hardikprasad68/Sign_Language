@@ -50,11 +50,15 @@ def _build_detector():
     return mp.Image, mp.ImageFormat, vision.HandLandmarker.create_from_options(options)
 
 
-def process_zip(zip_path: str, out_csv: str, limit_per_class: int = 200) -> dict:
+def process_zip(zip_path: str, out_csv: str, limit_per_class: int = 200, only_letters: set | None = None) -> dict:
     """
     Reads images directly out of the zip (no extraction to disk), groups
     them by their immediate parent folder name inside the zip (used as the
     label), extracts landmarks, and appends real samples to out_csv.
+
+    If only_letters is given, all other letters are skipped entirely —
+    useful for topping up just a few weak letters without reprocessing
+    the whole dataset.
     """
     mp_Image, mp_ImageFormat, detector = _build_detector()
     counts: dict[str, int] = {}
@@ -72,6 +76,9 @@ def process_zip(zip_path: str, out_csv: str, limit_per_class: int = 200) -> dict
             label = Path(entry).parent.name
             if not label or len(label) > 3:
                 # Skip weird top-level entries that aren't per-letter folders
+                continue
+
+            if only_letters is not None and label not in only_letters:
                 continue
 
             if counts.get(label, 0) >= limit_per_class:
@@ -132,11 +139,20 @@ if __name__ == "__main__":
     parser.add_argument("--self-csv", type=str, default="data/landmarks.csv", help="Existing landmarks CSV with real self-recorded rows")
     parser.add_argument("--out", type=str, default="data/landmarks_real.csv", help="Output CSV path")
     parser.add_argument("--limit", type=int, default=200, help="Max images to process per letter")
+    parser.add_argument("--letters", nargs="*", default=None,
+                         help="Only process these specific letters (e.g. --letters M E U). "
+                              "Omit to process all letters as before.")
+    parser.add_argument("--skip-self-merge", action="store_true",
+                         help="Skip appending self-csv rows — use this when --out already contains "
+                              "your full merged dataset and you're just topping up a few letters, "
+                              "to avoid duplicating rows you already have.")
 
     args = parser.parse_args()
 
     _ensure_csv_exists(args.out)
-    process_zip(args.zip, args.out, args.limit)
-    merge_with_self_csv(args.self_csv, args.out)
+    only_letters = set(l.upper() for l in args.letters) if args.letters else None
+    process_zip(args.zip, args.out, args.limit, only_letters=only_letters)
+    if not args.skip_self_merge:
+        merge_with_self_csv(args.self_csv, args.out)
 
     print(f"\n[DONE] Real-data training CSV ready at: {args.out}")

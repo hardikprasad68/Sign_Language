@@ -1,5 +1,15 @@
+drink
+eat
+friend
 hello
+help
+love
+more
+name
 no
 please
+sorry
+stop
 thanks
+want
 yes
