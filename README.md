@@ -1,7 +1,9 @@
-# Sign Language Translator — Phase 2: Static Model Refinement & Dynamic Word Kickoff
+# Sign Language Translator — Real-Time ASL Alphabet & Word Recognition
 
-> **Real-time sign language translator using MediaPipe Hands, PyTorch Static Residual MLP (v2), and Dynamic GRU Sequence Classifier (v1).**  
-> Immediate camera startup · Dual-mode static/dynamic toggle (`[m]`) · Temporal majority-vote smoothing · Automated benchmarks.
+> **Real-time sign language translator using MediaPipe Hands, PyTorch Static Residual MLP (v2), and Dynamic GRU Sequence Classifier (v1).**
+> Immediate camera startup · Dual-mode static/dynamic toggle (`[m]`) · Temporal majority-vote smoothing · Automated benchmarks · Standalone Windows build.
+
+> **Update:** Both AI models were originally trained mostly on synthetic (programmatically generated, non-photographic) data, which caused unreliable predictions on real hands. Both models have since been retrained on real data — see [Real-Data Retraining](#7-real-data-retraining-fix-for-synthetic-training-data) below.
 
 ---
 
@@ -72,29 +74,34 @@ pip install -r requirements.txt
 ### Training Static Model v2
 Train the upgraded `StaticModelV2` with 3D augmentation and residual blocks:
 ```powershell
-python -u src/train.py --csv data/landmarks.csv --epochs 30 --augment --model-out models/mlp_v2.pt
+python -u src/train.py --csv data/landmarks_real.csv --epochs 30 --augment --model-out models/mlp_v2.pt
 ```
-*   **Target Accuracy:** >90.00% validation & test accuracy (Achieved: **94.37% Val / 94.52% Test**).
+*   **Current accuracy (real data):** **1.00 test accuracy** across all 24 static letters, evaluated on real photos + real self-recorded samples (see `results/static_v2_metrics.txt`). Previous figures (94.37% val / 94.52% test) were measured on a mostly-synthetic dataset and did not reflect real-world performance — see [section 7](#7-real-data-retraining-fix-for-synthetic-training-data).
 *   Output artifacts saved to `models/mlp_v2.pt` and `results/static_v2_metrics.txt`.
+*   To build `data/landmarks_real.csv` from a public image dataset instead of (or in addition to) manual recording, see `scripts/merge_from_zip.py`.
 
 ---
 
 ## 2. Track B — Dynamic Word Model v1 (15 Words)
 
 ### Generate / Record Dynamic Sequences
-Generate synthetic 30-frame sequence dataset for the 15 dynamic words (`hello`, `thanks`, `yes`, `no`, `please`, `help`, `sorry`, `name`, `more`, `stop`, `love`, `want`, `eat`, `drink`, `friend`):
+
+**Recommended: use real data.** The original synthetic generator below produces sequences with uniform sine-wave motion across all landmarks, which does not resemble real signing and was found to make the model unreliable in live testing. Prefer one of these real-data sources instead:
+- `scripts/wlasl_to_sequences.py` — extracts real landmark sequences from the WLASL (Word-Level American Sign Language) video dataset for the target vocabulary, without needing to record yourself.
+- `src/data_logger.py`, pressing `[d]` to start/stop recording your own real sequences.
+
+Synthetic generation (fallback / supplementary only, not recommended as a sole data source):
 ```powershell
 python -u src/data/generate_dynamic_data.py --output data/dynamic --samples 50
 ```
 
-To record live sequences directly via webcam, launch `src/data_logger.py` and press `[d]` to start/stop dynamic sequence recording.
-
 ### Train Dynamic GRU Model v1
-Train the 2-layer Bidirectional GRU sequence classifier:
+Train the 2-layer Bidirectional GRU sequence classifier on real sequences:
 ```powershell
-python -u src/train_dynamic.py --data-dir data/dynamic --epochs 30
+python -u src/train_dynamic.py --data-dir data/dynamic_real --epochs 30
 ```
 *   Output artifacts saved to `models/dynamic_v1.pt` and `results/dynamic_v1_metrics.txt`.
+*   Note: real per-word sample counts from WLASL are typically much lower than the static model's per-letter counts (tens, not hundreds), so accuracy may vary more by word. Supplementing thin words with a few self-recorded samples via `data_logger.py` is recommended.
 
 ---
 
@@ -153,6 +160,49 @@ python src/ui_app.py
 - **Robustness**: Application survives camera disconnects and handles 'no hand' frames gracefully.
 
 **Known Limitations for Alpha**:
+- J and Z are not supported — both require in-air motion to sign and are excluded from the static alphabet by design (not a bug). They could be added to the dynamic word model in the future.
 - Webcams with poor lighting or high latency may drop frames or struggle with DYNAMIC sequences.
-- Pyttsx3 TTS is synchronous internally and may cause a micro-stutter if auto-speak is enabled, although threaded. 
+- Pyttsx3 TTS is synchronous internally and may cause a micro-stutter if auto-speak is enabled, although threaded.
 - Fast signers might need to lower the "Hold Duration" slider in settings.
+- Dynamic word accuracy varies more by word than static letter accuracy, due to lower real-sample counts per word (see section 7).
+
+---
+
+## 7. Real-Data Retraining (fix for synthetic training data)
+
+**Problem found:** both models were originally trained mostly on synthetic, non-photographic data:
+- Static model: 86% of training rows (7,200/8,400) came from `scripts/generate_asl_data.py`, a script that hand-codes approximate finger-curl values per letter — not real hand images.
+- Dynamic model: 100% of training sequences came from `src/data/generate_dynamic_data.py`, which applies uniform sine-wave motion to all landmarks — not real signing motion.
+
+This produced high reported accuracy (94-96%) because it was measured on held-out splits of the same synthetic distribution, but caused unreliable predictions on real hands in live use (e.g. static letters being misclassified).
+
+**Fix applied:**
+- `scripts/merge_from_zip.py` — extracts real landmarks directly from a zipped photo dataset (e.g. Kaggle ASL Alphabet) without extracting the archive to disk first.
+- `scripts/wlasl_to_sequences.py` — extracts real landmark sequences from the WLASL video dataset for the dynamic word vocabulary.
+- Both models retrained on real data only (plus real self-recorded samples). Static model now scores 1.00 test accuracy on real held-out data; dynamic model retrained on real signer videos instead of synthetic motion.
+- Fixed several bugs surfaced during this work: MediaPipe VIDEO-mode timestamp monotonicity when reusing one detector across many videos, a frame-trim mismatch in WLASL's metadata vs. pre-trimmed clips, and a `train_dynamic.py` crash on classes too small to stratify-split.
+
+**For anyone extending this project:** avoid relying on synthetic data generators (`generate_asl_data.py`, `generate_dynamic_data.py`) as a primary data source. They're useful for quick smoke-testing the pipeline, but do not generalize to real hands. Use `merge_from_zip.py`, `wlasl_to_sequences.py`, or `data_logger.py` for real training data instead.
+
+---
+
+## 8. Standalone Windows Build (.exe)
+
+The app can be packaged into a standalone Windows executable that runs without Python installed, using PyInstaller.
+
+### Prerequisites
+```powershell
+pip install pyinstaller
+```
+
+### Build
+```powershell
+pyinstaller --name SignLanguageTranslator --onedir --collect-all mediapipe --collect-all numpy --add-data "models;models" --add-data "docs;docs" --paths src src\ui_app.py
+```
+
+This produces `dist\SignLanguageTranslator\SignLanguageTranslator.exe`, along with an `_internal` folder that must stay alongside it (this is a `--onedir` build, not a single-file exe — this is intentional, as `--onefile` builds were less reliable with MediaPipe's bundled data).
+
+### Notes for packaging
+- `src/resource_path.py` resolves file paths correctly whether running from source or from inside the frozen executable. If you add new code that constructs paths relative to `__file__`, use `get_project_root()` from this module instead, or it will break in the packaged build.
+- Some antivirus software (particularly enterprise/managed endpoint protection) may flag or lock files during the build process, since unsigned PyInstaller executables can trigger heuristic scans. If `Compress-Archive` fails with a file-in-use error when zipping the build for distribution, try 7-Zip instead, or use `robocopy` with retry flags (`/R:10 /W:2`) to copy the folder first.
+- To distribute the build, zip the entire `dist\SignLanguageTranslator` folder (not just the `.exe`) and share via GitHub Releases.
