@@ -1,17 +1,24 @@
 import time
 
 class SentenceBuilder:
-    def __init__(self, hold_duration_frames: int = 15, confidence_threshold: float = 0.6):
+    def __init__(self, hold_duration_frames: int = 15, confidence_threshold: float = 0.6,
+                 dynamic_confidence_threshold: float = 0.35):
         """
         Manages the accumulated sentence text with a hold-to-confirm mechanism.
         
         Args:
-            hold_duration_frames: Consecutive frames a prediction must be held to commit.
-            confidence_threshold: Minimum confidence to consider a prediction valid for holding.
+            hold_duration_frames: Consecutive frames a prediction must be held to commit (STATIC mode only).
+            confidence_threshold: Minimum confidence to consider a STATIC prediction valid for holding.
+            dynamic_confidence_threshold: Minimum confidence for DYNAMIC word commits. This is
+                intentionally lower than the static threshold and matches the stabilizer's own
+                dynamic threshold — dynamic gestures are inherently less confident single-shot
+                predictions, not continuously-held poses, so gating them at the same strict
+                static threshold silently blocks otherwise-valid word commits.
         """
         self.buffer = ""
         self.hold_duration_frames = hold_duration_frames
         self.confidence_threshold = confidence_threshold
+        self.dynamic_confidence_threshold = dynamic_confidence_threshold
         
         self.current_held_prediction = None
         self.held_frames_count = 0
@@ -32,20 +39,31 @@ class SentenceBuilder:
         """
         Processes a single smoothed prediction. If the prediction is held long enough
         above the confidence threshold, it is committed to the sentence buffer.
-        
+
+        Note: STATIC letters are continuously-held poses, so they require being
+        seen for several consecutive frames before committing (hold_duration_frames).
+        DYNAMIC words are one-shot: the classifier only fires briefly, right when
+        the gesture sequence buffer completes, and then resets. Requiring the same
+        multi-frame hold for DYNAMIC mode means the word is almost always gone
+        before it can accumulate enough held frames, so it silently never commits.
+        DYNAMIC predictions are therefore committed as soon as they appear (still
+        subject to the cooldown below, to avoid the same word firing twice in a row).
+
         Returns:
             The newly committed word/char, or None if nothing was committed this frame.
         """
         committed_text = None
-        
-        if label and confidence >= self.confidence_threshold:
+        required_hold_frames = 1 if mode == "DYNAMIC" else self.hold_duration_frames
+        required_confidence = self.dynamic_confidence_threshold if mode == "DYNAMIC" else self.confidence_threshold
+
+        if label and confidence >= required_confidence:
             if label == self.current_held_prediction:
                 self.held_frames_count += 1
             else:
                 self.current_held_prediction = label
                 self.held_frames_count = 1
-                
-            if self.held_frames_count >= self.hold_duration_frames:
+
+            if self.held_frames_count >= required_hold_frames:
                 # Check cooldown to prevent rapid-fire repeating
                 if time.time() - self.last_committed_time > self.cooldown_seconds:
                     committed_text = self._commit_prediction(mode, label)
@@ -54,7 +72,7 @@ class SentenceBuilder:
         else:
             self.current_held_prediction = None
             self.held_frames_count = 0
-            
+
         return committed_text
 
     def _commit_prediction(self, mode: str, label: str) -> str:

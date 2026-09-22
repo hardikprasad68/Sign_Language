@@ -22,16 +22,12 @@ from labels import load_class_labels
 # Phase 3 imports
 from sentence_builder import SentenceBuilder
 from speech_output import SpeechEngine
+from caption_overlay import draw_caption_overlay
 
 # Setup paths (similar to main.py)
 from pathlib import Path
 from resource_path import get_project_root
 _PROJECT_ROOT = get_project_root()
-print(f"[DEBUG] sys.frozen={getattr(sys, 'frozen', False)}")
-print(f"[DEBUG] sys._MEIPASS={getattr(sys, '_MEIPASS', 'N/A')}")
-print(f"[DEBUG] sys.executable={sys.executable}")
-print(f"[DEBUG] _PROJECT_ROOT resolved to={_PROJECT_ROOT}")
-print(f"[DEBUG] (_PROJECT_ROOT / 'models').exists()={(_PROJECT_ROOT / 'models').exists()}")
 STATIC_MODEL_PATH = str(_PROJECT_ROOT / "models" / "mlp_v2.pt")
 STATIC_MODEL_FALLBACK = str(_PROJECT_ROOT / "models" / "mlp_v1.pt")
 STATIC_LABELS_PATH = str(_PROJECT_ROOT / "models" / "class_labels.txt")
@@ -130,8 +126,10 @@ class TranslatorApp(QMainWindow):
             sys.exit(1)
             
         # Phase 3 Components
-        self.sentence_builder = SentenceBuilder(hold_duration_frames=15, confidence_threshold=0.6)
+        self.sentence_builder = SentenceBuilder(hold_duration_frames=15, confidence_threshold=0.6,
+                                                 dynamic_confidence_threshold=0.35)
         self.speech_engine = SpeechEngine(auto_speak=False)
+        self.captions_enabled = True
         
         self.no_hand_frames = 0
         self.setup_ui()
@@ -216,6 +214,11 @@ class TranslatorApp(QMainWindow):
         self.auto_speak_check = QCheckBox("Auto-Speak Confirmed Words")
         self.auto_speak_check.stateChanged.connect(self.on_auto_speak_changed)
         right_layout.addWidget(self.auto_speak_check)
+
+        self.captions_check = QCheckBox("Show Live Captions On Video")
+        self.captions_check.setChecked(True)
+        self.captions_check.stateChanged.connect(self.on_captions_toggle_changed)
+        right_layout.addWidget(self.captions_check)
         
         # Sliders
         conf_layout = QHBoxLayout()
@@ -248,6 +251,7 @@ class TranslatorApp(QMainWindow):
     # --- UI Event Handlers ---
     def on_mode_changed(self, text):
         self.active_mode = "STATIC" if "STATIC" in text else "DYNAMIC"
+        self.stabilizer.set_mode(self.active_mode)
         self.stabilizer.reset()
         self.sequence_buffer.clear()
         
@@ -260,6 +264,9 @@ class TranslatorApp(QMainWindow):
 
     def on_auto_speak_changed(self, state):
         self.speech_engine.auto_speak = (state == 2)
+
+    def on_captions_toggle_changed(self, state):
+        self.captions_enabled = (state == 2)
         
     def on_space_clicked(self):
         self.sentence_builder.manual_space()
@@ -383,7 +390,8 @@ class TranslatorApp(QMainWindow):
 
             # Update UI Elements
             if stabilized_label:
-                progress = min(100, int((self.sentence_builder.held_frames_count / self.sentence_builder.hold_duration_frames) * 100))
+                required_hold = 1 if self.active_mode == "DYNAMIC" else self.sentence_builder.hold_duration_frames
+                progress = min(100, int((self.sentence_builder.held_frames_count / required_hold) * 100))
                 self.pred_label.setText(f"Prediction: {stabilized_label} ({confidence*100:.0f}%) [Hold: {progress}%]")
             else:
                 if self.active_mode == "DYNAMIC":
@@ -392,6 +400,12 @@ class TranslatorApp(QMainWindow):
                 else:
                     self.pred_label.setText("Prediction: --")
 
+
+            # Live Caption Overlay (Mode 1: in-person captions burned onto video)
+            if getattr(self, 'captions_enabled', True):
+                current_sentence = self.sentence_builder.get_sentence()
+                live_hint = stabilized_label if stabilized_label else ""
+                draw_caption_overlay(frame, current_sentence, live_label=live_hint)
 
             # Convert to QImage and show
             rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
